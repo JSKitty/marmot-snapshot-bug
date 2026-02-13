@@ -27,6 +27,19 @@ use rusqlite::{params, Connection};
 /// - OpenMLS StorageProvider uses `JsonCodec::serialize()` for `group_id` keys
 /// - MDK tables use raw bytes for `mls_group_id`
 fn seed_test_data(db_path: &std::path::Path, raw_bytes: &[u8], json_key: &[u8]) {
+    seed_test_data_with_values(db_path, raw_bytes, json_key, b"fake_crypto_state", b"fake_epoch_keys", b"fake_leaf_node", 5);
+}
+
+/// Helper: insert test data with specific values for crypto state and epoch.
+fn seed_test_data_with_values(
+    db_path: &std::path::Path,
+    raw_bytes: &[u8],
+    json_key: &[u8],
+    crypto_state: &[u8],
+    epoch_keys: &[u8],
+    leaf_node: &[u8],
+    epoch: i64,
+) {
     let conn = Connection::open(db_path).unwrap();
 
     // OpenMLS StorageProvider writes group_id as JSON-encoded bytes
@@ -34,21 +47,21 @@ fn seed_test_data(db_path: &std::path::Path, raw_bytes: &[u8], json_key: &[u8]) 
     conn.execute(
         "INSERT INTO openmls_group_data (provider_version, group_id, data_type, group_data)
          VALUES (?1, ?2, ?3, ?4)",
-        params![1i32, json_key, "group_state", b"fake_crypto_state"],
+        params![1i32, json_key, "group_state", crypto_state],
     )
     .unwrap();
 
     conn.execute(
         "INSERT INTO openmls_epoch_key_pairs (provider_version, group_id, epoch_id, leaf_index, key_pairs)
          VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![1i32, json_key, json_key, 0i32, b"fake_epoch_keys"],
+        params![1i32, json_key, json_key, 0i32, epoch_keys],
     )
     .unwrap();
 
     conn.execute(
         "INSERT INTO openmls_own_leaf_nodes (provider_version, group_id, leaf_node)
          VALUES (?1, ?2, ?3)",
-        params![1i32, json_key, b"fake_leaf_node"],
+        params![1i32, json_key, leaf_node],
     )
     .unwrap();
 
@@ -62,7 +75,7 @@ fn seed_test_data(db_path: &std::path::Path, raw_bytes: &[u8], json_key: &[u8]) 
             "Test Group",
             "Bug repro",
             "[]",
-            5i64,
+            epoch,
             "active"
         ],
     )
@@ -367,5 +380,148 @@ mod tests {
             !snapshot_had_openmls,
             "Snapshot never contained any OpenMLS rows — restore has nothing to work with"
         );
+    }
+
+    /// Test 5: Full MIP-03 rollback simulation — proves rollback creates an
+    /// inconsistent metadata/crypto state that breaks the group.
+    ///
+    /// MIP-03 flow: snapshot at epoch N → process commit → if conflict, rollback.
+    ///
+    /// BUG: After rollback, `groups.epoch` is 5 (rolled back) but OpenMLS crypto
+    /// state is still at epoch 6 (untouched — both snapshot AND delete miss it).
+    /// The group has split-brain: metadata says one epoch, crypto engine says another.
+    ///
+    /// On a FIXED MDK, both would be rolled back to epoch 5 consistently.
+    #[test]
+    fn mip03_rollback_creates_metadata_crypto_mismatch() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let db_path = tmp.path().to_path_buf();
+
+        let storage = MdkSqliteStorage::new_unencrypted(&db_path).unwrap();
+
+        let group_id = GroupId::from_slice(&[
+            0xAA, 0xBB, 0xCC, 0xDD, 0x11, 0x22, 0x33, 0x44,
+            0x55, 0x66, 0x77, 0x88, 0x99, 0x00, 0xEE, 0xFF,
+        ]);
+        let raw_bytes = group_id.as_slice();
+        let json_key = JsonCodec::serialize(&group_id).unwrap();
+
+        // ── EPOCH 5: Initial group state ──
+        seed_test_data_with_values(
+            &db_path, raw_bytes, &json_key,
+            b"epoch5_crypto_state",   // openmls_group_data
+            b"epoch5_epoch_keys",     // openmls_epoch_key_pairs
+            b"epoch5_leaf_node",      // openmls_own_leaf_nodes
+            5,                        // groups.epoch
+        );
+
+        // Take snapshot at epoch 5 (MIP-03: "before processing potentially conflicting commit")
+        storage.create_group_snapshot(&group_id, "snap_epoch5").unwrap();
+
+        // Verify snapshot only captured MDK metadata (not OpenMLS)
+        let snap_tables = get_snapshot_tables(&db_path, raw_bytes);
+        let snap_table_names: Vec<&str> = snap_tables.iter().map(|(t, _)| t.as_str()).collect();
+        assert!(snap_table_names.contains(&"groups"), "snapshot has MDK groups");
+        assert!(!snap_table_names.contains(&"openmls_group_data"), "snapshot missing OpenMLS (BUG)");
+
+        // ── EPOCH 6: Advance state (simulate processing a commit) ──
+        {
+            let conn = Connection::open(&db_path).unwrap();
+
+            // Advance MDK metadata to epoch 6
+            conn.execute(
+                "UPDATE groups SET epoch = 6 WHERE mls_group_id = ?",
+                params![raw_bytes],
+            ).unwrap();
+
+            // Advance OpenMLS crypto state to epoch 6
+            conn.execute(
+                "UPDATE openmls_group_data SET group_data = ? WHERE group_id = ?",
+                params![b"epoch6_crypto_state" as &[u8], &json_key],
+            ).unwrap();
+
+            conn.execute(
+                "UPDATE openmls_epoch_key_pairs SET key_pairs = ? WHERE group_id = ?",
+                params![b"epoch6_epoch_keys" as &[u8], &json_key],
+            ).unwrap();
+
+            conn.execute(
+                "UPDATE openmls_own_leaf_nodes SET leaf_node = ? WHERE group_id = ?",
+                params![b"epoch6_leaf_node" as &[u8], &json_key],
+            ).unwrap();
+        }
+
+        // Verify we're at epoch 6 across the board
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            let epoch: i64 = conn.query_row(
+                "SELECT epoch FROM groups WHERE mls_group_id = ?",
+                params![raw_bytes], |row| row.get(0),
+            ).unwrap();
+            assert_eq!(epoch, 6, "pre-rollback: MDK metadata at epoch 6");
+
+            let crypto: Vec<u8> = conn.query_row(
+                "SELECT group_data FROM openmls_group_data WHERE group_id = ?",
+                params![&json_key], |row| row.get(0),
+            ).unwrap();
+            assert_eq!(crypto, b"epoch6_crypto_state", "pre-rollback: OpenMLS at epoch 6");
+        }
+
+        // ── ROLLBACK: MIP-03 detects conflict, rolls back to epoch 5 snapshot ──
+        storage.rollback_group_to_snapshot(&group_id, "snap_epoch5").unwrap();
+
+        // ── VERIFY: What state is the group in after rollback? ──
+        let conn = Connection::open(&db_path).unwrap();
+
+        // MDK metadata: rolled back to epoch 5 ✓
+        let epoch_after: i64 = conn.query_row(
+            "SELECT epoch FROM groups WHERE mls_group_id = ?",
+            params![raw_bytes], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(epoch_after, 5,
+            "MDK groups.epoch rolled back to 5 (raw bytes match → rollback works for MDK tables)");
+
+        // OpenMLS crypto state: still at epoch 6! ✗
+        // Both the snapshot (capture) AND the restore (delete) use as_slice() raw bytes,
+        // which don't match the JSON-keyed OpenMLS rows. So:
+        //   - Snapshot captured 0 OpenMLS rows
+        //   - Restore's DELETE missed the OpenMLS rows (raw bytes ≠ JSON key)
+        //   - OpenMLS data is completely untouched — still at epoch 6
+        let crypto_after: Vec<u8> = conn.query_row(
+            "SELECT group_data FROM openmls_group_data WHERE group_id = ?",
+            params![&json_key], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(crypto_after, b"epoch6_crypto_state",
+            "BUG: OpenMLS crypto state NOT rolled back — still epoch 6 data");
+
+        let keys_after: Vec<u8> = conn.query_row(
+            "SELECT key_pairs FROM openmls_epoch_key_pairs WHERE group_id = ?",
+            params![&json_key], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(keys_after, b"epoch6_epoch_keys",
+            "BUG: OpenMLS epoch keys NOT rolled back — still epoch 6 keys");
+
+        let leaf_after: Vec<u8> = conn.query_row(
+            "SELECT leaf_node FROM openmls_own_leaf_nodes WHERE group_id = ?",
+            params![&json_key], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(leaf_after, b"epoch6_leaf_node",
+            "BUG: OpenMLS leaf node NOT rolled back — still epoch 6 leaf");
+
+        // ── THE CONSEQUENCE ──
+        // groups.epoch = 5   (metadata thinks we're at epoch 5)
+        // MLS engine state   = epoch 6 (crypto keys, tree, leaf — all at epoch 6)
+        //
+        // This split-brain means:
+        //   - MDK will try to process epoch 5 commits again
+        //   - But the MLS engine has epoch 6 keys, so decryption fails
+        //   - Every subsequent message in this group will be unprocessable
+        //   - The group is permanently corrupted with no recovery path
+        //
+        // On a FIXED MDK (using JsonCodec for OpenMLS queries):
+        //   - Snapshot would capture OpenMLS rows (JSON key matches)
+        //   - Restore would delete epoch 6 OpenMLS state (JSON key matches)
+        //   - Restore would re-insert epoch 5 OpenMLS state from snapshot
+        //   - groups.epoch = 5 AND MLS engine state = epoch 5 (CONSISTENT)
     }
 }
