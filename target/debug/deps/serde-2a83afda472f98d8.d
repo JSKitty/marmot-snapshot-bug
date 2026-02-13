@@ -1,0 +1,14 @@
+/Users/jskitty/Documents/Projects/marmot-snapshot-bug/target/debug/deps/serde-2a83afda472f98d8.d: /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/jskitty/Documents/Projects/marmot-snapshot-bug/target/debug/build/serde-c348e5590472a789/out/private.rs
+
+/Users/jskitty/Documents/Projects/marmot-snapshot-bug/target/debug/deps/libserde-2a83afda472f98d8.rlib: /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/jskitty/Documents/Projects/marmot-snapshot-bug/target/debug/build/serde-c348e5590472a789/out/private.rs
+
+/Users/jskitty/Documents/Projects/marmot-snapshot-bug/target/debug/deps/libserde-2a83afda472f98d8.rmeta: /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/jskitty/Documents/Projects/marmot-snapshot-bug/target/debug/build/serde-c348e5590472a789/out/private.rs
+
+/Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/jskitty/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/jskitty/Documents/Projects/marmot-snapshot-bug/target/debug/build/serde-c348e5590472a789/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/jskitty/Documents/Projects/marmot-snapshot-bug/target/debug/build/serde-c348e5590472a789/out
